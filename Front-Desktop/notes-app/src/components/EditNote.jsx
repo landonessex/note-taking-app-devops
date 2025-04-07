@@ -27,6 +27,7 @@ const EditNote = () => {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false); // Track if there are unsaved changes
   const [connection, setConnection] = useState(null); // SignalR connection
   const [autoSavePending, setAutoSavePending] = useState(false); // Track if autosave is pending
+  const [isOffline, setIsOffline] = useState(false); // Track if user is offline
   
   // Share functionality states
   const [showShareModal, setShowShareModal] = useState(false);
@@ -35,6 +36,27 @@ const EditNote = () => {
   const [shareAccess, setShareAccess] = useState("view"); 
   // Add revoke access state
   const [accessRevoked, setAccessRevoked] = useState(false);
+
+  // Monitor online/offline status
+  useEffect(() => {
+    // Function to update online status
+    const handleOnlineStatus = () => {
+      setIsOffline(!navigator.onLine);
+    };
+    
+    // Check initial status
+    handleOnlineStatus();
+    
+    // Set up event listeners
+    window.addEventListener('online', handleOnlineStatus);
+    window.addEventListener('offline', handleOnlineStatus);
+    
+    // Clean up event listeners
+    return () => {
+      window.removeEventListener('online', handleOnlineStatus);
+      window.removeEventListener('offline', handleOnlineStatus);
+    };
+  }, []);
 
   // Keeps track of latest changes for autosave to use the most current data
   useEffect(() => {
@@ -49,6 +71,22 @@ const EditNote = () => {
   useEffect(() => {
     const fetchNote = async () => {
       try {
+        // Check if there's offline data to use
+        const offlineData = localStorage.getItem(`offline-note-${noteId}`);
+        if (isOffline && offlineData) {
+          const parsedData = JSON.parse(offlineData);
+          setNote({
+            title: parsedData.title,
+            content: parsedData.content,
+          });
+          setTags(
+            parsedData.tags ? parsedData.tags.split(",").filter((tag) => tag.trim()) : []
+          );
+          setInitialDataLoaded(true);
+          setHasUnsavedChanges(false);
+          return;
+        }
+
         const data = await NotesService.getNote(noteId);
         // Set note data and parse tags from comma-separated string
         setNote({
@@ -66,14 +104,31 @@ const EditNote = () => {
         setAccessRevoked(isRevoked);
       } catch (error) {
         console.error("Error fetching note:", error);
+        // Try to load from offline storage if online fetch fails
+        const offlineData = localStorage.getItem(`offline-note-${noteId}`);
+        if (offlineData) {
+          const parsedData = JSON.parse(offlineData);
+          setNote({
+            title: parsedData.title,
+            content: parsedData.content,
+          });
+          setTags(
+            parsedData.tags ? parsedData.tags.split(",").filter((tag) => tag.trim()) : []
+          );
+          setSaveMessage("Loaded from offline storage");
+          setTimeout(() => setSaveMessage(""), 3000);
+        }
         setInitialDataLoaded(true);
       }
     };
     fetchNote();
-  }, [noteId]);
+  }, [noteId, isOffline]);
 
   // Setup SignalR connection when component mounts
   useEffect(() => {
+    // Don't attempt connection if offline
+    if (isOffline) return;
+
     const newConnection = new signalR.HubConnectionBuilder()
       .withUrl("https://localhost:7272/notehub", {
         withCredentials: true,
@@ -125,7 +180,7 @@ const EditNote = () => {
         });
       }
     };
-  }, [noteId]);
+  }, [noteId, isOffline]);
 
   // Close modal when clicking outside of it
   useEffect(() => {
@@ -147,6 +202,23 @@ const EditNote = () => {
   // Autosave function that uses latestNoteRef to capture all changes
   const handleAutoSave = async () => {
     if (isSaving) return;
+    
+    // Check if offline
+    if (isOffline) {
+      setSaveMessage("You're offline. Changes saved locally.");
+      // Store note in localStorage for later sync
+      localStorage.setItem(`offline-note-${noteId}`, JSON.stringify({
+        title: latestNoteRef.current.title,
+        content: latestNoteRef.current.content,
+        tags: latestNoteRef.current.tags
+      }));
+      setLastSaved(new Date());
+      setHasUnsavedChanges(false);
+      setAutoSavePending(false);
+      setTimeout(() => setSaveMessage(""), 3000);
+      return;
+    }
+    
     setIsSaving(true);
     setAutoSavePending(false);
 
@@ -185,6 +257,15 @@ const EditNote = () => {
     } catch (error) {
       console.error("Error during autosave:", error);
       setSaveMessage("Error saving");
+      
+      // Save to localStorage as fallback
+      localStorage.setItem(`offline-note-${noteId}`, JSON.stringify({
+        title: latestNoteRef.current.title,
+        content: latestNoteRef.current.content,
+        tags: latestNoteRef.current.tags
+      }));
+      setSaveMessage("Saved locally due to error");
+      
       setTimeout(() => setSaveMessage(""), 3000);
     } finally {
       setIsSaving(false);
@@ -211,19 +292,22 @@ const EditNote = () => {
       setHasUnsavedChanges(true);
       scheduleAutosave();
 
-      setTimeout(() => {
-        if (connection && connection.state === signalR.HubConnectionState.Connected) {
-          const noteToSend = {
-            id: noteId,
-            title: updatedNote.title,
-            content: updatedNote.content,
-            tags: tags.join(","),
-            isKeystroke: true
-          };
+      // Only try to send realtime updates if online
+      if (!isOffline) {
+        setTimeout(() => {
+          if (connection && connection.state === signalR.HubConnectionState.Connected) {
+            const noteToSend = {
+              id: noteId,
+              title: updatedNote.title,
+              content: updatedNote.content,
+              tags: tags.join(","),
+              isKeystroke: true
+            };
 
-          connection.invoke("UpdateNoteContent", noteId, noteToSend)
-        }
-      }, 10); // 10ms delay
+            connection.invoke("UpdateNoteContent", noteId, noteToSend)
+          }
+        }, 10); // 10ms delay
+      }
     }
   };
 
@@ -253,6 +337,21 @@ const EditNote = () => {
   const handleSave = async () => {
     // Skip if already saving
     if (isSaving) return;
+    
+    // Check if offline
+    if (isOffline) {
+      setSaveMessage("You're offline. Changes saved locally.");
+      // Store note in localStorage for later sync
+      localStorage.setItem(`offline-note-${noteId}`, JSON.stringify({
+        title: note.title,
+        content: note.content,
+        tags: tags.join(",")
+      }));
+      setLastSaved(new Date());
+      setHasUnsavedChanges(false);
+      setTimeout(() => setSaveMessage(""), 3000);
+      return;
+    }
 
     setIsSaving(true);
     setAutoSavePending(false);
@@ -298,12 +397,44 @@ const EditNote = () => {
       setTimeout(() => setSaveMessage(""), 3000);
     } catch (error) {
       console.error("Error saving note:", error);
-      setSaveMessage("Error saving");
+      setSaveMessage("Error saving, stored locally");
+      
+      // Save to localStorage as fallback
+      localStorage.setItem(`offline-note-${noteId}`, JSON.stringify({
+        title: note.title,
+        content: note.content,
+        tags: tags.join(",")
+      }));
+      
       setTimeout(() => setSaveMessage(""), 3000);
     } finally {
       setIsSaving(false);
     }
   };
+
+  // Function to sync offline notes when coming back online
+  useEffect(() => {
+    if (!isOffline) {
+      const offlineData = localStorage.getItem(`offline-note-${noteId}`);
+      if (offlineData) {
+        const parsedData = JSON.parse(offlineData);
+        // Only sync if we were previously offline and now we're online
+        const syncOfflineChanges = async () => {
+          try {
+            await NotesService.updateNote(noteId, parsedData);
+            localStorage.removeItem(`offline-note-${noteId}`);
+            setSaveMessage("Offline changes synced");
+            setTimeout(() => setSaveMessage(""), 3000);
+          } catch (error) {
+            console.error("Error syncing offline changes:", error);
+            setSaveMessage("Failed to sync offline changes");
+            setTimeout(() => setSaveMessage(""), 3000);
+          }
+        };
+        syncOfflineChanges();
+      }
+    }
+  }, [isOffline, noteId]);
 
   // Clear timer
   useEffect(() => {
@@ -328,10 +459,22 @@ const EditNote = () => {
             tags: tags.join(","),
           };
 
+          // If offline, save to localStorage
+          if (isOffline) {
+            localStorage.setItem(`offline-note-${noteId}`, JSON.stringify(noteData));
+            return;
+          }
+
           // Use NotesService to update
           NotesService.updateNote(noteId, noteData);
         } catch (error) {
           console.error("Error", error);
+          // Save to localStorage as fallback
+          localStorage.setItem(`offline-note-${noteId}`, JSON.stringify({
+            title: note.title,
+            content: note.content,
+            tags: tags.join(",")
+          }));
         }
       }
     };
@@ -350,7 +493,7 @@ const EditNote = () => {
       }
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, [hasUnsavedChanges, noteId, note, tags]);
+  }, [hasUnsavedChanges, noteId, note, tags, isOffline]);
 
   // Format the last saved time
   const getLastSavedText = () => {
@@ -413,13 +556,20 @@ const EditNote = () => {
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-white text-xl">Edit Note</h2>
             <div className="text-white/70 text-sm flex items-center gap-2">
+              {/* Offline indicator */}
+              {isOffline && (
+                <div className="bg-yellow-500 text-white px-3 py-1 rounded-full text-sm">
+                  Offline Mode
+                </div>
+              )}
+              
               {saveMessage && (
                 <span
                   className={`${
                     saveMessage.includes("Error") ||
                     saveMessage.includes("failed")
                       ? "text-red-300"
-                      : saveMessage.includes("Auto-saving")
+                      : saveMessage.includes("Auto-saving") || saveMessage.includes("offline")
                       ? "text-yellow-300"
                       : "text-green-300"
                   }`}
