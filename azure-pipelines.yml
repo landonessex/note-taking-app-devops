@@ -8,6 +8,7 @@ variables:
   solution: '**/*.sln'
   buildPlatform: 'Any CPU'
   buildConfiguration: 'Release'
+  JAVA_HOME: 'C:\Program Files\Eclipse Adoptium\jdk-11.0.26+4'
 
 stages:
 # BUILD STAGE
@@ -17,42 +18,18 @@ stages:
   - job: BuildJob
     displayName: 'Build and Test'
     steps:
-    # Set up Java for SonarCloud
-    - powershell: |
-        # Find and verify Java installation
-        $javaFolders = @(
-          "C:\Program Files\Java\*jdk*",
-          "C:\Program Files\Eclipse Adoptium\*jdk*",
-          "C:\Program Files\Microsoft\*jdk*", 
-          "C:\Program Files\AdoptOpenJDK\*jdk*"
-        )
+
+  - powershell: |
+        Write-Host "Setting up Java environment"
+        Write-Host "JAVA_HOME: $env:JAVA_HOME"
         
-        $javaHome = $null
+        # Add Java bin to PATH
+        $env:PATH = "$env:PATH;$env:JAVA_HOME\bin"
+        Write-Host "##vso[task.setvariable variable=PATH]$env:PATH"
         
-        foreach ($pattern in $javaFolders) {
-          $folders = Get-ChildItem -Path $pattern -ErrorAction SilentlyContinue
-          foreach ($folder in $folders) {
-            $javaExe = Join-Path -Path $folder.FullName -ChildPath "bin\java.exe"
-            if (Test-Path $javaExe) {
-              Write-Host "Found Java at: $($folder.FullName)"
-              $javaHome = $folder.FullName
-              break
-            }
-          }
-          if ($javaHome) { break }
-        }
-        
-        if ($javaHome) {
-          Write-Host "##vso[task.setvariable variable=JAVA_HOME]$javaHome"
-          Write-Host "##vso[task.setvariable variable=PATH]$env:PATH;$javaHome\bin"
-          Write-Host "Set JAVA_HOME to: $javaHome"
-          
-          # Verify Java works
-          & "$javaHome\bin\java.exe" -version
-        } else {
-          Write-Host "##[warning]No Java installation found. Will attempt to use existing environment."
-        }
-      displayName: 'Configure Java for SonarCloud'
+        # Verify Java is accessible
+        java -version
+      displayName: 'Configure Java Environment'
     
     # Prepare SonarCloud Analysis
     - task: SonarCloudPrepare@1
