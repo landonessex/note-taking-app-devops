@@ -127,43 +127,7 @@ stages:
         arguments: '--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/backend'
         zipAfterPublish: true
 
-    - task: PowerShell@2
-      displayName: 'Check Frontend Build Directories'
-      inputs:
-        targetType: 'inline'
-        script: |
-          Write-Host "Checking frontend directory structure"
-          $frontendPath = "$(Build.SourcesDirectory)\Front-Desktop\notes-app"
-          
-          Write-Host "Contents of notes-app folder:"
-          if (Test-Path $frontendPath) {
-            Get-ChildItem -Path $frontendPath | Format-Table Name, LastWriteTime, Length -AutoSize
-          } else {
-            Write-Host "##[warning]Notes-app folder not found at: $frontendPath"
-          }
-          
-          # Check for possible build output folders
-          $buildFolders = @('build', 'dist', 'out', 'public')
-          $foundBuildFolder = $null
-          
-          foreach ($folder in $buildFolders) {
-            $path = Join-Path -Path $frontendPath -ChildPath $folder
-            if (Test-Path $path) {
-              Write-Host "Found build folder: $folder"
-              $foundBuildFolder = $folder
-              Write-Host "Contents of $folder folder:"
-              Get-ChildItem -Path $path | Format-Table Name, LastWriteTime, Length -AutoSize
-            }
-          }
-          
-          # Set a variable with the found build folder
-          if ($foundBuildFolder) {
-            Write-Host "##vso[task.setvariable variable=FrontendBuildFolder]$foundBuildFolder"
-          } else {
-            Write-Host "##[warning]No build output folder found!"
-          }
-    
-    # Package Frontend
+    # Copy Frontend Source
     - task: CopyFiles@2
       displayName: 'Copy Frontend Source Files'
       inputs:
@@ -173,17 +137,10 @@ stages:
           public/**
           package.json
           package-lock.json
+          *.js
+          *.json
           README.md
           .env*
-        TargetFolder: '$(Build.ArtifactStagingDirectory)/frontend'
-    
-    # Fallback copy if no build folder was found
-    - task: CopyFiles@2
-      displayName: 'Fallback - Copy Frontend Source'
-      condition: eq(variables['FrontendBuildFolder'], '')
-      inputs:
-        SourceFolder: '$(Build.SourcesDirectory)/Front-Desktop/notes-app/src'
-        Contents: '**'
         TargetFolder: '$(Build.ArtifactStagingDirectory)/frontend'
     
     # Publish Artifacts
