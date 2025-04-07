@@ -311,18 +311,30 @@ const EditNote = () => {
     }
   };
 
-  // Add new tag to the tags array
-  const handleAddTag = (e) => {
-    e.preventDefault();
-    if (newTag.trim() && !tags.includes(newTag.trim())) {
-      setTags([...tags, newTag.trim()]);
-      setNewTag("");
-      if (initialDataLoaded) {
-        setHasUnsavedChanges(true);
-        scheduleAutosave();
-      }
+  // add new tags
+const handleAddTag = (e) => {
+  e.preventDefault();
+  const trimmedTag = newTag.trim();
+  
+  // Check if trimmed tag exists (case-insensitive)
+  const tagExists = tags.some(tag => 
+    tag.toLowerCase() === trimmedTag.toLowerCase()
+  );
+  
+  // Only add if not empty and not a duplicate
+  if (trimmedTag && !tagExists) {
+    setTags([...tags, trimmedTag]);
+    setNewTag("");
+    if (initialDataLoaded) {
+      setHasUnsavedChanges(true);
+      scheduleAutosave();
     }
-  };
+  } else if (tagExists) {
+    // Show feedback that tag already exists
+    setSaveMessage("Tag already exists");
+    setTimeout(() => setSaveMessage(""), 2000);
+  }
+};
 
   // Remove tag from the tags array
   const handleDeleteTag = (tagToDelete) => {
