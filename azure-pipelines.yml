@@ -5,11 +5,13 @@ pool:
   name: 'MySelfHostedPool'
 
 variables:
-  solution: 'Noteworthy-Backend.sln' 
+  solution: 'Noteworthy-Backend.sln'
   buildPlatform: 'Any CPU'
   buildConfiguration: 'Release'
-  # Microsoft JDK 17 path
   JAVA_HOME: 'C:\Program Files\Microsoft\jdk-17.0.14.7-hotspot'
+  SONAR_PROJECT_KEY: 'landonessex_note-taking-app-devops'
+  SONAR_ORGANIZATION: 'landonessex'
+  SONAR_PROJECT_NAME: 'Note Taking App'
 
 stages:
 # BUILD STAGE
@@ -19,7 +21,7 @@ stages:
   - job: BuildJob
     displayName: 'Build and Test'
     steps:
-    # Configure Java environment
+    # Setup Java environment
     - task: PowerShell@2
       displayName: 'Setup Java 17 Environment'
       inputs:
@@ -36,50 +38,37 @@ stages:
           
           # Verify Java
           Write-Host "Java version:"
-          try {
-            $javaVersionOutput = & java -version 2>&1
-            $javaVersionOutput | ForEach-Object { Write-Host $_ }
-            
-            # Check if it's Java 17
-            $javaVersionString = $javaVersionOutput | Out-String
-            if ($javaVersionString -match "version ""17") {
-              Write-Host "Java 17 confirmed!"
-            } else {
-              Write-Warning "Expected Java 17 but found: $javaVersionString"
-            }
-          } catch {
-            Write-Error "Error running java: $_"
-          }
-    
-    # SonarCloud Preparation 
-    - task: SonarCloudPrepare@3
-      displayName: 'Prepare SonarCloud Analysis'
+          java -version 2>&1 | ForEach-Object { Write-Host $_ }
+
+    - task: PowerShell@2
+      displayName: 'Create SonarCloud Properties File'
       inputs:
-        SonarCloud: 'SonarCloud-Connection'
-        organization: 'landonessex'
-        scannerMode: 'cli' 
-        projectKey: 'landonessex_note-taking-app-devops'
-        projectName: 'Note Taking App'
-        extraProperties: |
-          # Common properties
+        targetType: 'inline'
+        script: |
+          @"
+          # Required metadata
+          sonar.projectKey=$(SONAR_PROJECT_KEY)
+          sonar.organization=$(SONAR_ORGANIZATION)
+          sonar.projectName=$(SONAR_PROJECT_NAME)
+          
+          # Sources
           sonar.sources=.
           
-          # .NET specific
+          # Exclude build artifacts, tests, etc.
+          sonar.exclusions=**/node_modules/**,**/bin/**,**/obj/**,**/*.test.js,**/*.spec.js,**/test/**
+          
+          # Test coverage reports
           sonar.cs.vstest.reportsPaths=$(Agent.TempDirectory)/*.trx
-          sonar.cs.vscoveragexml.reportsPaths=$(Agent.TempDirectory)/*.xml
+          sonar.cs.opencover.reportsPaths=$(Agent.TempDirectory)/*.xml
           
-          # Inclusions/exclusions
-          sonar.inclusions=**/*.cs,**/*.js,**/*.jsx,**/*.ts,**/*.tsx
-          sonar.exclusions=**/node_modules/**,**/*.test.js,**/*.spec.js,**/bin/**,**/obj/**,**/*.json,**/Properties/**,**/wwwroot/**
-          
-          # Test files
-          sonar.test.inclusions=**/*.test.js,**/*.spec.js,**/*Test*.cs
-          sonar.test.exclusions=**/node_modules/**,**/bin/**,**/obj/**
-          
-          # Configure logs
+          # Debug
+          sonar.verbose=true
           sonar.log.level=DEBUG
-    
-    # Step 1: Build .NET Backend
+          "@ | Out-File -FilePath "$(Build.SourcesDirectory)/sonar-project.properties" -Encoding UTF8
+          
+          Get-Content "$(Build.SourcesDirectory)/sonar-project.properties"
+
+    # Build .NET Backend
     - task: DotNetCoreCLI@2
       displayName: 'Build .NET Backend'
       inputs:
@@ -87,7 +76,7 @@ stages:
         projects: '**/Noteworthy-Backend.csproj'
         arguments: '--configuration $(buildConfiguration)'
     
-    # Step 2: Build Frontend
+    # Build Frontend
     - task: Npm@1
       displayName: 'Frontend - Install Dependencies'
       inputs:
@@ -100,8 +89,17 @@ stages:
         command: 'custom'
         workingDir: 'Front-Desktop/notes-app'
         customCommand: 'run build'
-    
-    # Run SonarCloud analysis
+
+    # Now setup and run SonarCloud
+    - task: SonarCloudPrepare@3
+      displayName: 'Prepare SonarCloud Analysis'
+      inputs:
+        SonarCloud: 'SonarCloud-Connection'
+        organization: '$(SONAR_ORGANIZATION)'
+        scannerMode: 'CLI'  
+        configMode: 'file' 
+        configFile: '$(Build.SourcesDirectory)/sonar-project.properties'
+        
     - task: SonarCloudAnalyze@3
       displayName: 'Run SonarCloud Analysis'
       timeoutInMinutes: 15
