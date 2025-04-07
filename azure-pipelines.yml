@@ -164,18 +164,18 @@ stages:
           }
     
     # Package Frontend
-- task: CopyFiles@2
-  displayName: 'Copy Frontend Source Files'
-  inputs:
-    SourceFolder: '$(Build.SourcesDirectory)/Front-Desktop/notes-app'
-    Contents: |
-      src/**
-      public/**
-      package.json
-      package-lock.json
-      README.md
-      .env*
-    TargetFolder: '$(Build.ArtifactStagingDirectory)/frontend'
+    - task: CopyFiles@2
+      displayName: 'Copy Frontend Source Files'
+      inputs:
+        SourceFolder: '$(Build.SourcesDirectory)/Front-Desktop/notes-app'
+        Contents: |
+          src/**
+          public/**
+          package.json
+          package-lock.json
+          README.md
+          .env*
+        TargetFolder: '$(Build.ArtifactStagingDirectory)/frontend'
     
     # Fallback copy if no build folder was found
     - task: CopyFiles@2
@@ -193,7 +193,7 @@ stages:
         PathtoPublish: '$(Build.ArtifactStagingDirectory)'
         ArtifactName: 'drop'
         publishLocation: 'Container'
-
+        
 # DEPLOY TO DEV STAGE
 - stage: DeployToDev
   displayName: 'Deploy to Dev'
