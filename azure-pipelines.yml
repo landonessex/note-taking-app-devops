@@ -36,35 +36,7 @@ stages:
           Write-Host "Java version:"
           java -version 2>&1 | ForEach-Object { Write-Host $_ }
     
-    # Use the latest version of SonarCloud tasks (@3)
-    - task: SonarCloudPrepare@3
-      displayName: 'Prepare SonarCloud Analysis'
-      inputs:
-        SonarCloud: 'SonarCloud-Connection'
-        organization: 'landonessex'
-        scannerMode: 'dotnet'
-        projectKey: 'landonessex_note-taking-app-devops'
-        projectName: 'Note Taking App'
-        extraProperties: |
-          # Main source code locations only
-          sonar.sources=Front-Desktop/notes-app/src,Noteworthy-Backend/Controllers,Noteworthy-Backend/Models,Noteworthy-Backend/Services
-          
-          # Comprehensive exclusions
-          sonar.exclusions=**/node_modules/**,**/*.test.js,**/*.spec.js,**/bin/**,**/obj/**,**/*.json,**/Properties/**,**/wwwroot/**
-          
-          # Define test files separately
-          sonar.tests=**/Tests/**
-          sonar.test.inclusions=**/*Test*/**,**/*.test.js,**/*.spec.js
-          sonar.test.exclusions=**/node_modules/**,**/bin/**,**/obj/**
-          
-          # Additional configuration
-          sonar.sourceEncoding=UTF-8
-          sonar.log.level=DEBUG
-          
-          # Explicitly disable binary analysis to avoid dependencies conflicts
-          sonar.dotnet.excludeTestProjects=true
-    
-    # Step 1: Build .NET Backend - COMPILE
+    # Step 1: Build .NET Backend
     - task: DotNetCoreCLI@2
       displayName: 'Build .NET Backend'
       inputs:
@@ -72,7 +44,7 @@ stages:
         projects: '**/Noteworthy-Backend.csproj'
         arguments: '--configuration $(buildConfiguration)'
     
-    # Step 2: Build Frontend - COMPILE
+    # Step 2: Build Frontend 
     - task: Npm@1
       displayName: 'Frontend - Install Dependencies'
       inputs:
@@ -85,19 +57,63 @@ stages:
         command: 'custom'
         workingDir: 'Front-Desktop/notes-app'
         customCommand: 'run build'
-    
-    # Use the latest version of SonarCloud tasks (@3)
-    - task: SonarCloudAnalyze@3
-      displayName: 'Run SonarCloud Analysis'
-      timeoutInMinutes: 15
-      env:
-        SONAR_SCANNER_OPTS: "-Xmx2048m"
-    
-    # Use the latest version of SonarCloud tasks (@3)
-    - task: SonarCloudPublish@3
-      displayName: 'Publish SonarCloud Quality Gate'
+
+    # SonarCloud CLI approach
+    - task: PowerShell@2
+      displayName: 'Run SonarCloud CLI Scanner'
       inputs:
-        pollingTimeoutSec: '300'
+        targetType: 'inline'
+        failOnStderr: false
+        script: |
+          # Download the scanner CLI directly
+          $scannerDir = "sonar-scanner"
+          if (-not (Test-Path $scannerDir)) {
+            Write-Host "Downloading SonarScanner CLI..."
+            Invoke-WebRequest -Uri "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-4.8.0.2856-windows.zip" -OutFile "sonar-scanner.zip"
+            Expand-Archive -Path "sonar-scanner.zip" -DestinationPath "."
+            # Rename the expanded directory for easier reference
+            Move-Item -Path "sonar-scanner-4.8.0.2856-windows" -Destination $scannerDir
+          }
+          
+          # Create a minimal properties file with the most basic configuration
+          @"
+          # Required metadata
+          sonar.projectKey=landonessex_note-taking-app-devops
+          sonar.organization=landonessex
+          sonar.host.url=https://sonarcloud.io
+          
+          # Sources - only scan source code files
+          sonar.sources=Noteworthy-Backend,Front-Desktop/notes-app/src
+          
+          # Include only actual source files
+          sonar.inclusions=**/*.cs,**/*.js,**/*.jsx,**/*.ts,**/*.tsx
+          
+          # Exclude ALL other files to avoid indexing conflicts
+          sonar.exclusions=**/*.json,**/*.xml,**/*.config,**/node_modules/**,**/bin/**,**/obj/**,**/*Test*/**,**/*.test.*,**/*.spec.*,**/wwwroot/**
+          
+          # Define test files separately
+          sonar.tests=**/*Test*/**
+          sonar.test.inclusions=**/*.test.js,**/*.spec.js,**/*Test*.cs
+          sonar.test.exclusions=**/node_modules/**
+          
+          # Additional configuration
+          sonar.sourceEncoding=UTF-8
+          sonar.log.level=DEBUG
+          "@ | Out-File -FilePath "sonar-project.properties" -Encoding utf8
+          
+          # Run the scanner with increased memory
+          $env:JAVA_HOME = "$env:JAVA_HOME"
+          $env:PATH = "$env:PATH;$env:JAVA_HOME\bin"
+          $env:SONAR_SCANNER_OPTS="-Xmx2048m"
+          
+          # Write diagnostic info
+          Write-Host "JAVA_HOME: $env:JAVA_HOME"
+          Write-Host "PATH: $env:PATH"
+          
+          # Run the scanner
+          & ".\$scannerDir\bin\sonar-scanner.bat" -D"sonar.token=$env:SONAR_TOKEN"
+      env:
+        SONAR_TOKEN: $(SONAR_TOKEN)
 
 # DELIVERY STAGE
 - stage: Deliver
