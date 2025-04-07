@@ -18,8 +18,8 @@ stages:
   - job: BuildJob
     displayName: 'Build and Test'
     steps:
-
-  - powershell: |
+    # Fixed indentation here - was misaligned
+    - powershell: |
         Write-Host "Setting up Java environment"
         Write-Host "JAVA_HOME: $env:JAVA_HOME"
         
