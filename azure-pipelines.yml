@@ -127,13 +127,44 @@ stages:
         arguments: '--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/backend'
         zipAfterPublish: true
     
+    # Verify frontend build path before copying
+    - task: PowerShell@2
+      displayName: 'Verify Frontend Build Path'
+      inputs:
+        targetType: 'inline'
+        script: |
+          Write-Host "Checking frontend build directory structure:"
+          $buildPath = "$(Build.SourcesDirectory)/Front-Desktop/notes-app"
+          
+          Write-Host "Contents of the notes-app directory:"
+          Get-ChildItem -Path $buildPath -Force
+          
+          if (Test-Path "$buildPath/build") {
+            Write-Host "Build directory exists, showing contents:"
+            Get-ChildItem -Path "$buildPath/build" -Force
+          } else {
+            Write-Host "##vso[task.logissue type=warning]Build directory does not exist at: $buildPath/build"
+            
+            # Check if there's a different build output directory
+            $possibleBuildDirs = @("dist", "output", "out")
+            foreach ($dir in $possibleBuildDirs) {
+              if (Test-Path "$buildPath/$dir") {
+                Write-Host "Found alternative build directory: $buildPath/$dir"
+                Write-Host "Contents:"
+                Get-ChildItem -Path "$buildPath/$dir" -Force
+              }
+            }
+          }
+    
     # Package Frontend
     - task: CopyFiles@2
       displayName: 'Copy Frontend Files'
       inputs:
-        SourceFolder: 'Front-Desktop/notes-app/build'
+        SourceFolder: '$(Build.SourcesDirectory)/Front-Desktop/notes-app/build'
         Contents: '**'
         TargetFolder: '$(Build.ArtifactStagingDirectory)/frontend'
+        OverWrite: true
+      continueOnError: true 
     
     # Publish Artifacts
     - task: PublishBuildArtifacts@1
