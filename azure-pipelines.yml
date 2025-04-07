@@ -8,7 +8,7 @@ variables:
   solution: '**/*.sln'
   buildPlatform: 'Any CPU'
   buildConfiguration: 'Release'
-  JAVA_HOME: 'C:\Program Files\Eclipse Adoptium\jdk-11.0.26+4'
+  JAVA_HOME: 'C:\\Program Files\\Eclipse Adoptium\\jdk-11.0.26+4'
 
 stages:
 # BUILD STAGE
@@ -18,32 +18,71 @@ stages:
   - job: BuildJob
     displayName: 'Build and Test'
     steps:
-    # Fixed indentation here - was misaligned
     - powershell: |
         Write-Host "Setting up Java environment"
-        Write-Host "JAVA_HOME: $env:JAVA_HOME"
+        Write-Host "Initial JAVA_HOME: $env:JAVA_HOME"
         
-        # Add Java bin to PATH
+        # Double-check if Java is in the expected location
+        $javaExe = "$env:JAVA_HOME\bin\java.exe"
+        if (Test-Path $javaExe) {
+          Write-Host "Java executable found at: $javaExe"
+        } else {
+          Write-Host "##[warning]Java not found at $javaExe, searching for Java..."
+          
+          # Try to find Java in common locations
+          $javaPaths = @(
+            "C:\Program Files\Eclipse Adoptium\jdk-11.0.26+4",
+            "C:\Program Files\Java",
+            "C:\Program Files\Eclipse Adoptium",
+            "C:\Program Files\AdoptOpenJDK"
+          )
+          
+          foreach ($basePath in $javaPaths) {
+            if (Test-Path $basePath) {
+              $jdkFolders = Get-ChildItem -Path $basePath -Directory | Where-Object { $_.Name -like "*jdk*" }
+              foreach ($folder in $jdkFolders) {
+                $testJavaExe = Join-Path -Path $folder.FullName -ChildPath "bin\java.exe"
+                if (Test-Path $testJavaExe) {
+                  Write-Host "Found Java at: $($folder.FullName)"
+                  Write-Host "##vso[task.setvariable variable=JAVA_HOME]$($folder.FullName)"
+                  $env:JAVA_HOME = $folder.FullName
+                  break
+                }
+              }
+            }
+          }
+        }
+        
+        # Add Java to PATH and export for subsequent tasks
         $env:PATH = "$env:PATH;$env:JAVA_HOME\bin"
         Write-Host "##vso[task.setvariable variable=PATH]$env:PATH"
         
-        # Verify Java is accessible
-        java -version
+        # Extra verification
+        Write-Host "Final JAVA_HOME: $env:JAVA_HOME"
+        try {
+          $javaVersion = & "$env:JAVA_HOME\bin\java.exe" -version 2>&1
+          Write-Host "Java version: $javaVersion"
+        } catch {
+          Write-Host "##[error]Error running Java: $_"
+        }
       displayName: 'Configure Java Environment'
     
-    # Prepare SonarCloud Analysis
-    - task: SonarCloudPrepare@1
+    # Use the latest version of SonarCloud tasks (@3)
+    - task: SonarCloudPrepare@3
       displayName: 'Prepare SonarCloud Analysis'
       inputs:
         SonarCloud: 'SonarCloud-Connection'
         organization: 'landonessex'
-        scannerMode: 'MSBuild'
+        scannerMode: 'dotnet'
         projectKey: 'landonessex_note-taking-app-devops'
         projectName: 'Note Taking App'
         extraProperties: |
           sonar.sources=Front-Desktop/notes-app/src,Noteworthy-Backend
           sonar.exclusions=**/node_modules/**,**/*.test.js
           sonar.sourceEncoding=UTF-8
+          # Add these properties to help with Java detection
+          sonar.scanner.force-deprecated-java-version=false
+          sonar.log.level=DEBUG
     
     # Step 1: Build .NET Backend - COMPILE
     - task: DotNetCoreCLI@2
@@ -67,16 +106,16 @@ stages:
         workingDir: 'Front-Desktop/notes-app'
         customCommand: 'run build'
     
-    # Run SonarCloud Analysis
-    - task: SonarCloudAnalyze@1
+    # Use the latest version of SonarCloud tasks (@3)
+    - task: SonarCloudAnalyze@3
       displayName: 'Run SonarCloud Analysis'
+      timeoutInMinutes: 15
     
-    # Publish SonarCloud Results
-    - task: SonarCloudPublish@1
+    # Use the latest version of SonarCloud tasks (@3)
+    - task: SonarCloudPublish@3
       displayName: 'Publish SonarCloud Quality Gate'
       inputs:
         pollingTimeoutSec: '300'
-
 # DELIVERY STAGE
 - stage: Deliver
   displayName: 'Delivery Stage'
