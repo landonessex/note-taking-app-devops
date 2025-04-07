@@ -163,14 +163,19 @@ stages:
             Write-Host "##[warning]No build output folder found!"
           }
     
-    # Copy Frontend Files
-    - task: CopyFiles@2
-      displayName: 'Copy Frontend Files'
-      inputs:
-        SourceFolder: '$(Build.SourcesDirectory)/Front-Desktop/notes-app/$(FrontendBuildFolder)'
-        Contents: '**'
-        TargetFolder: '$(Build.ArtifactStagingDirectory)/frontend'
-      continueOnError: true
+    # Package Frontend
+- task: CopyFiles@2
+  displayName: 'Copy Frontend Source Files'
+  inputs:
+    SourceFolder: '$(Build.SourcesDirectory)/Front-Desktop/notes-app'
+    Contents: |
+      src/**
+      public/**
+      package.json
+      package-lock.json
+      README.md
+      .env*
+    TargetFolder: '$(Build.ArtifactStagingDirectory)/frontend'
     
     # Fallback copy if no build folder was found
     - task: CopyFiles@2
