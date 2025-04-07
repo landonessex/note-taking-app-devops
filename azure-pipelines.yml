@@ -8,7 +8,7 @@ variables:
   solution: '**/*.sln'
   buildPlatform: 'Any CPU'
   buildConfiguration: 'Release'
-  JAVA_HOME: 'C:\Program Files\Java\jdk-17' 
+  javaLocalDir: 'C:\Program Files\Java\jdk-17'
 
 stages:
 # BUILD STAGE
@@ -23,23 +23,69 @@ stages:
       inputs:
         versionSpec: '17'
         jdkArchitectureOption: 'x64'
-        jdkSourceOption: 'PreInstalled'
-    
+        jdkSourceOption: 'LocalDirectory'
+        jdkFile: '$(Build.SourcesDirectory)/java-tools/jdk-17_windows-x64_bin.zip'
+        jdkDestinationDirectory: '$(Agent.ToolsDirectory)/Java17'
+      continueOnError: true 
+
     - task: PowerShell@2
-      displayName: 'Verify Java Version'
+      displayName: 'Setup Java 17 Environment'
       inputs:
         targetType: 'inline'
         failOnStderr: false
-        errorActionPreference: 'continue'
         script: |
-          Write-Host "Verifying Java environment"
-          Write-Host "JAVA_HOME: $env:JAVA_HOME"
+          Write-Host "Setting up Java environment"
           
-          # Verify Java is accessible and is version 17
+          # Check if JavaToolInstaller succeeded
+          if (Test-Path "$(Agent.ToolsDirectory)/Java17") {
+            Write-Host "Using Java from JavaToolInstaller"
+            $env:JAVA_HOME = "$(Agent.ToolsDirectory)/Java17"
+          }
+          # Check if local Java 17 exists
+          elseif (Test-Path "$(javaLocalDir)") {
+            Write-Host "Using local Java 17 installation"
+            $env:JAVA_HOME = "$(javaLocalDir)"
+          }
+          # Otherwise, try to download Java 17
+          else {
+            Write-Host "Downloading and installing Java 17"
+            # Create a directory for Java
+            $javaDir = "$(Build.BinariesDirectory)/Java17"
+            New-Item -ItemType Directory -Path $javaDir -Force | Out-Null
+            
+            # Download Adoptium OpenJDK 17
+            $javaUrl = "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.8%2B7/OpenJDK17U-jdk_x64_windows_hotspot_17.0.8_7.zip"
+            $javaZip = "$(Build.BinariesDirectory)/java17.zip"
+            
+            Write-Host "Downloading from $javaUrl"
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            Invoke-WebRequest -Uri $javaUrl -OutFile $javaZip
+            
+            Write-Host "Extracting Java..."
+            Expand-Archive -Path $javaZip -DestinationPath $javaDir -Force
+            
+            # Find the JDK directory
+            $jdkDir = Get-ChildItem -Path $javaDir -Filter "jdk*" -Directory | Select-Object -First 1
+            if ($jdkDir) {
+              $env:JAVA_HOME = $jdkDir.FullName
+            } else {
+              $env:JAVA_HOME = $javaDir
+            }
+          }
+          
+          # Add Java to PATH
+          $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
+          
+          # Set environment variables for subsequent tasks
+          Write-Host "Setting JAVA_HOME to: $env:JAVA_HOME"
+          Write-Host "##vso[task.setvariable variable=JAVA_HOME]$env:JAVA_HOME"
+          Write-Host "##vso[task.setvariable variable=PATH]$env:PATH"
+          
+          # Verify Java version
           Write-Host "Java version:"
           java -version 2>&1 | ForEach-Object { Write-Host $_ }
     
-    # Step 1: Build .NET Backend 
+    # Step 1: Build .NET Backend
     - task: DotNetCoreCLI@2
       displayName: 'Build .NET Backend'
       inputs:
@@ -47,7 +93,7 @@ stages:
         projects: '**/Noteworthy-Backend.csproj'
         arguments: '--configuration $(buildConfiguration)'
     
-    # Step 2: Build Frontend 
+    # Step 2: Build Frontend
     - task: Npm@1
       displayName: 'Frontend - Install Dependencies'
       inputs:
@@ -61,6 +107,7 @@ stages:
         workingDir: 'Front-Desktop/notes-app'
         customCommand: 'run build'
 
+    # SonarCloud with MSBuild mode
     - task: SonarCloudPrepare@3
       displayName: 'Prepare SonarCloud Analysis'
       inputs:
@@ -70,9 +117,6 @@ stages:
         projectKey: 'landonessex_note-taking-app-devops'
         projectName: 'Note Taking App'
         extraProperties: |
-          # Sources - specific directories
-          sonar.sources=Front-Desktop/notes-app/src,Noteworthy-Backend
-          
           # Specific file inclusions - only source code
           sonar.inclusions=**/*.cs,**/*.js,**/*.jsx,**/*.ts,**/*.tsx
           
@@ -80,14 +124,14 @@ stages:
           sonar.exclusions=**/node_modules/**,**/*.test.js,**/*.spec.js,**/bin/**,**/obj/**,**/*.json,**/Properties/**,**/wwwroot/**
           
           # Test configuration
-          sonar.tests=**/*Test*/**
           sonar.test.inclusions=**/*.test.js,**/*.spec.js,**/*Test*.cs
           sonar.test.exclusions=**/node_modules/**,**/bin/**,**/obj/**
           
           # Other settings
           sonar.sourceEncoding=UTF-8
           sonar.log.level=DEBUG
-
+    
+    # Run SonarCloud
     - task: SonarCloudAnalyze@3
       displayName: 'Run SonarCloud Analysis'
       timeoutInMinutes: 15
