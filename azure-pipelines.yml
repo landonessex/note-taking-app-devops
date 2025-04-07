@@ -24,7 +24,7 @@ stages:
       inputs:
         targetType: 'inline'
         failOnStderr: false  
-        errorActionPreference: 'continue'
+        errorActionPreference: 'continue' 
         script: |
           Write-Host "Setting up Java environment"
           Write-Host "JAVA_HOME: $env:JAVA_HOME"
@@ -75,13 +75,13 @@ stages:
         workingDir: 'Front-Desktop/notes-app'
         customCommand: 'run build'
 
-    # SonarCloud with MSBuild mode
+    # SonarCloud with dotnet mode
     - task: SonarCloudPrepare@3
       displayName: 'Prepare SonarCloud Analysis'
       inputs:
         SonarCloud: 'SonarCloud-Connection'
         organization: 'landonessex'
-        scannerMode: 'MSBuild'
+        scannerMode: 'dotnet'
         projectKey: 'landonessex_note-taking-app-devops'
         projectName: 'Note Taking App'
         extraProperties: |
@@ -98,7 +98,7 @@ stages:
           # Configure logs
           sonar.log.level=DEBUG
     
-    # Run SonarCloud 
+    # Run SonarCloud
     - task: SonarCloudAnalyze@3
       displayName: 'Run SonarCloud Analysis'
       timeoutInMinutes: 15
