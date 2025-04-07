@@ -1,4 +1,4 @@
-# comp313-002-Team4-W25
+# DEVOPS IMPLEMENTATION
 
 
 Make sure to install the TailwindCSS IntelliSense Extension for VSCode [here](https://marketplace.visualstudio.com/items?itemName=bradlc.vscode-tailwindcss)
