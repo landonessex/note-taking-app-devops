@@ -32,8 +32,7 @@ stages:
           $env:PATH = "$env:PATH;$env:JAVA_HOME\bin"
           Write-Host "##vso[task.setvariable variable=PATH]$env:PATH"
           
-          # Verify Java is accessible - redirecting stderr to stdout
-          # The 2>&1 is handled properly with failOnStderr:false
+          # Verify Java is accessible
           Write-Host "Java version:"
           java -version 2>&1 | ForEach-Object { Write-Host $_ }
     
@@ -47,8 +46,19 @@ stages:
         projectKey: 'landonessex_note-taking-app-devops'
         projectName: 'Note Taking App'
         extraProperties: |
+          # Fix the duplicate file inclusion by explicitly defining source directories and exclusions
           sonar.sources=Front-Desktop/notes-app/src,Noteworthy-Backend
-          sonar.exclusions=**/node_modules/**,**/*.test.js
+          
+          # Exclude test files and configuration files from analysis
+          sonar.exclusions=**/node_modules/**,**/*.test.js,**/*.spec.js,**/*Tests/**,**/obj/**,**/bin/**
+          
+          # Specifically exclude the problematic file or define it in a separate test sources property
+          # sonar.test.inclusions=**/*Test*/**,**/*.test.js,**/*.spec.js
+          
+          # Explicitly exclude appsettings from analysis if it's causing issues
+          sonar.exclusions=**/appsettings*.json
+          
+          # Other properties
           sonar.sourceEncoding=UTF-8
           sonar.log.level=DEBUG
     
