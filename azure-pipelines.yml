@@ -1,0 +1,172 @@
+trigger:
+- main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  solution: '**/*.sln'
+  buildPlatform: 'Any CPU'
+  buildConfiguration: 'Release'
+
+stages:
+# BUILD STAGE
+- stage: Build
+  displayName: 'Build Stage'
+  jobs:
+  - job: BuildJob
+    displayName: 'Build and Test'
+    steps:
+    # Prepare SonarCloud Analysis
+    - task: SonarCloudPrepare@1
+      displayName: 'Prepare SonarCloud Analysis'
+      inputs:
+        SonarCloud: 'SonarCloud-Connection'
+        organization: 'landonessex'
+        scannerMode: 'MSBuild'
+        projectKey: 'landonessex_note-taking-app-devops'
+        projectName: 'Note Taking App'
+        extraProperties: |
+          sonar.sources=Front-Desktop/notes-app/src,Noteworthy-Backend
+          sonar.exclusions=**/node_modules/**,**/*.test.js
+          sonar.sourceEncoding=UTF-8
+    
+    # Step 1: Build .NET Backend - COMPILE
+    - task: DotNetCoreCLI@2
+      displayName: 'Build .NET Backend'
+      inputs:
+        command: 'build'
+        projects: '**/Noteworthy-Backend.csproj'
+        arguments: '--configuration $(buildConfiguration)'
+    
+    # Step 2: Build Frontend - COMPILE
+    - task: Npm@1
+      displayName: 'Frontend - Install Dependencies'
+      inputs:
+        command: 'install'
+        workingDir: 'Front-Desktop/notes-app'
+    
+    - task: Npm@1
+      displayName: 'Frontend - Build'
+      inputs:
+        command: 'custom'
+        workingDir: 'Front-Desktop/notes-app'
+        customCommand: 'run build'
+    
+    # Run SonarCloud Analysis
+    - task: SonarCloudAnalyze@1
+      displayName: 'Run SonarCloud Analysis'
+    
+    # Publish SonarCloud Results
+    - task: SonarCloudPublish@1
+      displayName: 'Publish SonarCloud Quality Gate'
+      inputs:
+        pollingTimeoutSec: '300'
+
+# DELIVERY STAGE
+- stage: Deliver
+  displayName: 'Delivery Stage'
+  dependsOn: Build
+  condition: succeeded()
+  jobs:
+  - job: DeliverJob
+    displayName: 'Package Artifact'
+    steps:
+    # Package .NET Backend
+    - task: DotNetCoreCLI@2
+      displayName: 'Publish .NET Backend'
+      inputs:
+        command: 'publish'
+        publishWebProjects: true
+        arguments: '--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/backend'
+        zipAfterPublish: true
+    
+    # Package Frontend
+    - task: CopyFiles@2
+      displayName: 'Copy Frontend Files'
+      inputs:
+        SourceFolder: 'Front-Desktop/notes-app/build'
+        Contents: '**'
+        TargetFolder: '$(Build.ArtifactStagingDirectory)/frontend'
+    
+    # Publish Artifacts
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish Artifacts'
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+        ArtifactName: 'drop'
+        publishLocation: 'Container'
+
+# DEPLOY TO DEV STAGE
+- stage: DeployToDev
+  displayName: 'Deploy to Dev'
+  dependsOn: Deliver
+  condition: succeeded()
+  jobs:
+  - deployment: DeployDev
+    displayName: 'Deploy to Dev Environment'
+    environment: 'dev'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - script: |
+              echo "Deploying to Dev Environment"
+              echo "Deploying Backend..."
+              echo "Deploying Frontend..."
+              # This is a mock deployment for demonstration
+            displayName: 'Deploy to Dev'
+
+# DEPLOY TO QAT STAGE
+- stage: DeployToQAT
+  displayName: 'Deploy to QAT'
+  dependsOn: DeployToDev
+  condition: succeeded()
+  jobs:
+  - deployment: DeployQAT
+    displayName: 'Deploy to QAT Environment'
+    environment: 'qat'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - script: |
+              echo "Deploying to QAT Environment"
+              # Mock deployment
+            displayName: 'Deploy to QAT'
+
+# DEPLOY TO STAGING STAGE
+- stage: DeployToStaging
+  displayName: 'Deploy to Staging'
+  dependsOn: DeployToQAT
+  condition: succeeded()
+  jobs:
+  - deployment: DeployStaging
+    displayName: 'Deploy to Staging Environment'
+    environment: 'staging'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - script: |
+              echo "Deploying to Staging Environment"
+              # Mock deployment
+            displayName: 'Deploy to Staging'
+
+# DEPLOY TO PRODUCTION STAGE
+- stage: DeployToProduction
+  displayName: 'Deploy to Production'
+  dependsOn: DeployToStaging
+  condition: succeeded()
+  jobs:
+  - deployment: DeployProd
+    displayName: 'Deploy to Production Environment'
+    environment: 'production'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - script: |
+              echo "Deploying to Production Environment"
+              # Mock deployment
+            displayName: 'Deploy to Production'
