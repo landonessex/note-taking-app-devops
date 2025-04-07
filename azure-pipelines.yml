@@ -46,21 +46,23 @@ stages:
         projectKey: 'landonessex_note-taking-app-devops'
         projectName: 'Note Taking App'
         extraProperties: |
-          # Fix the duplicate file inclusion by explicitly defining source directories and exclusions
-          sonar.sources=Front-Desktop/notes-app/src,Noteworthy-Backend
+          # Main source code locations only
+          sonar.sources=Front-Desktop/notes-app/src,Noteworthy-Backend/Controllers,Noteworthy-Backend/Models,Noteworthy-Backend/Services
           
-          # Exclude test files and configuration files from analysis
-          sonar.exclusions=**/node_modules/**,**/*.test.js,**/*.spec.js,**/*Tests/**,**/obj/**,**/bin/**
+          # Comprehensive exclusions
+          sonar.exclusions=**/node_modules/**,**/*.test.js,**/*.spec.js,**/bin/**,**/obj/**,**/*.json,**/Properties/**,**/wwwroot/**
           
-          # Specifically exclude the problematic file or define it in a separate test sources property
-          # sonar.test.inclusions=**/*Test*/**,**/*.test.js,**/*.spec.js
+          # Define test files separately
+          sonar.tests=**/Tests/**
+          sonar.test.inclusions=**/*Test*/**,**/*.test.js,**/*.spec.js
+          sonar.test.exclusions=**/node_modules/**,**/bin/**,**/obj/**
           
-          # Explicitly exclude appsettings from analysis if it's causing issues
-          sonar.exclusions=**/appsettings*.json
-          
-          # Other properties
+          # Additional configuration
           sonar.sourceEncoding=UTF-8
           sonar.log.level=DEBUG
+          
+          # Explicitly disable binary analysis to avoid dependencies conflicts
+          sonar.dotnet.excludeTestProjects=true
     
     # Step 1: Build .NET Backend - COMPILE
     - task: DotNetCoreCLI@2
@@ -88,6 +90,8 @@ stages:
     - task: SonarCloudAnalyze@3
       displayName: 'Run SonarCloud Analysis'
       timeoutInMinutes: 15
+      env:
+        SONAR_SCANNER_OPTS: "-Xmx2048m"
     
     # Use the latest version of SonarCloud tasks (@3)
     - task: SonarCloudPublish@3
