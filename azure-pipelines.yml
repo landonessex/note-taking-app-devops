@@ -8,7 +8,7 @@ variables:
   solution: '**/*.sln'
   buildPlatform: 'Any CPU'
   buildConfiguration: 'Release'
-  JAVA_HOME: 'C:\\Program Files\\Eclipse Adoptium\\jdk-11.0.26+4'
+  JAVA_HOME: 'C:\Program Files\Eclipse Adoptium\jdk-11.0.26+4'
 
 stages:
 # BUILD STAGE
@@ -18,54 +18,105 @@ stages:
   - job: BuildJob
     displayName: 'Build and Test'
     steps:
-    - powershell: |
-        Write-Host "Setting up Java environment"
-        Write-Host "Initial JAVA_HOME: $env:JAVA_HOME"
-        
-        # Double-check if Java is in the expected location
-        $javaExe = "$env:JAVA_HOME\bin\java.exe"
-        if (Test-Path $javaExe) {
-          Write-Host "Java executable found at: $javaExe"
-        } else {
-          Write-Host "##[warning]Java not found at $javaExe, searching for Java..."
+    - task: PowerShell@2
+      displayName: 'Configure Java Environment'
+      inputs:
+        targetType: 'inline'
+        failOnStderr: false
+        script: |
+          Write-Host "Setting up Java environment"
+          Write-Host "Initial JAVA_HOME: $env:JAVA_HOME"
           
-          # Try to find Java in common locations
-          $javaPaths = @(
-            "C:\Program Files\Eclipse Adoptium\jdk-11.0.26+4",
-            "C:\Program Files\Java",
-            "C:\Program Files\Eclipse Adoptium",
-            "C:\Program Files\AdoptOpenJDK"
-          )
+          # Double-check if Java is in the expected location
+          $javaExe = "$env:JAVA_HOME\bin\java.exe"
+          if (Test-Path $javaExe) {
+            Write-Host "Java executable found at: $javaExe"
+          } else {
+            Write-Host "##[warning]Java not found at $javaExe, searching for Java..."
+            
+            # Try to find Java in common locations
+            $javaPaths = @(
+              "C:\Program Files\Eclipse Adoptium\jdk-11.0.26+4",
+              "C:\Program Files\Eclipse Adoptium\jdk-11.0.26.4-hotspot", # Check the path from the previous error
+              "C:\Program Files\Java",
+              "C:\Program Files\Eclipse Adoptium",
+              "C:\Program Files\AdoptOpenJDK"
+            )
+            
+            foreach ($basePath in $javaPaths) {
+              if (Test-Path $basePath) {
+                $jdkFolders = Get-ChildItem -Path $basePath -Directory | Where-Object { $_.Name -like "*jdk*" }
+                foreach ($folder in $jdkFolders) {
+                  $testJavaExe = Join-Path -Path $folder.FullName -ChildPath "bin\java.exe"
+                  if (Test-Path $testJavaExe) {
+                    Write-Host "Found Java at: $($folder.FullName)"
+                    Write-Host "##vso[task.setvariable variable=JAVA_HOME]$($folder.FullName)"
+                    $env:JAVA_HOME = $folder.FullName
+                    break
+                  }
+                }
+              }
+              if ($env:JAVA_HOME -ne "C:\Program Files\Eclipse Adoptium\jdk-11.0.26+4") { break }
+            }
+          }
           
-          foreach ($basePath in $javaPaths) {
-            if (Test-Path $basePath) {
-              $jdkFolders = Get-ChildItem -Path $basePath -Directory | Where-Object { $_.Name -like "*jdk*" }
-              foreach ($folder in $jdkFolders) {
-                $testJavaExe = Join-Path -Path $folder.FullName -ChildPath "bin\java.exe"
-                if (Test-Path $testJavaExe) {
-                  Write-Host "Found Java at: $($folder.FullName)"
-                  Write-Host "##vso[task.setvariable variable=JAVA_HOME]$($folder.FullName)"
-                  $env:JAVA_HOME = $folder.FullName
-                  break
+          # Add Java to PATH and export for subsequent tasks
+          $env:PATH = "$env:PATH;$env:JAVA_HOME\bin"
+          Write-Host "##vso[task.setvariable variable=PATH]$env:PATH"
+          
+          # Extra verification - capture stderr without failing
+          Write-Host "Final JAVA_HOME: $env:JAVA_HOME"
+          # Redirect stderr (2) to stdout (1) and capture
+          $javaVersion = & "$env:JAVA_HOME\bin\java.exe" -version 2>&1
+          Write-Host "Java version output:"
+          $javaVersion | ForEach-Object { Write-Host $_ }
+
+    - task: PowerShell@2
+      displayName: 'SonarCloud Pre-Diagnostics'
+      inputs:
+        targetType: 'inline'
+        failOnStderr: false
+        script: |
+          Write-Host "===== ENVIRONMENT DIAGNOSTICS ====="
+          Write-Host "JAVA_HOME: $env:JAVA_HOME"
+          Write-Host "PATH: $env:PATH"
+          
+          # Verify Java executable
+          $javaExe = "$env:JAVA_HOME\bin\java.exe"
+          if (Test-Path $javaExe) {
+            Write-Host "Java executable found at: $javaExe"
+            $javaVersion = & "$javaExe" -version 2>&1
+            Write-Host "Java version: $javaVersion"
+          } else {
+            Write-Host "##[error]Java executable NOT found at expected location: $javaExe"
+          }
+          
+          # Verify SonarScanner directory
+          $sonarDir = "C:\Agent\_work\_tasks\SonarCloudPrepare_*"
+          if (Test-Path $sonarDir) {
+            $sonarDirs = Get-ChildItem -Path $sonarDir -Directory
+            foreach ($dir in $sonarDirs) {
+              Write-Host "Found SonarCloud prepare directory: $($dir.FullName)"
+              
+              # Check scanner files
+              $scannerDirs = Get-ChildItem -Path $dir.FullName -Directory -Recurse -Include "sonar-scanner*", "*sonar*scanner*"
+              foreach ($scannerDir in $scannerDirs) {
+                Write-Host "Found scanner directory: $($scannerDir.FullName)"
+                if (Test-Path "$($scannerDir.FullName)\bin") {
+                  Write-Host "Scanner bin directory exists"
                 }
               }
             }
+          } else {
+            Write-Host "##[warning]Could not find SonarCloud prepare directory"
           }
-        }
-        
-        # Add Java to PATH and export for subsequent tasks
-        $env:PATH = "$env:PATH;$env:JAVA_HOME\bin"
-        Write-Host "##vso[task.setvariable variable=PATH]$env:PATH"
-        
-        # Extra verification
-        Write-Host "Final JAVA_HOME: $env:JAVA_HOME"
-        try {
-          $javaVersion = & "$env:JAVA_HOME\bin\java.exe" -version 2>&1
-          Write-Host "Java version: $javaVersion"
-        } catch {
-          Write-Host "##[error]Error running Java: $_"
-        }
-      displayName: 'Configure Java Environment'
+          
+          # Network connectivity checks
+          Write-Host "Testing network connectivity to SonarCloud:"
+          try { $result = Test-NetConnection -ComputerName sonarcloud.io -Port 443; Write-Host "Connected: $($result.TcpTestSucceeded)" } catch { Write-Host "Connection test failed: $_" }
+          
+          Write-Host "Testing network connectivity to SonarSource binaries:"
+          try { $result = Test-NetConnection -ComputerName binaries.sonarsource.com -Port 443; Write-Host "Connected: $($result.TcpTestSucceeded)" } catch { Write-Host "Connection test failed: $_" }
     
     # Use the latest version of SonarCloud tasks (@3)
     - task: SonarCloudPrepare@3
@@ -116,6 +167,7 @@ stages:
       displayName: 'Publish SonarCloud Quality Gate'
       inputs:
         pollingTimeoutSec: '300'
+
 # DELIVERY STAGE
 - stage: Deliver
   displayName: 'Delivery Stage'
